@@ -1,0 +1,568 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>WheresDat</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: system-ui, sans-serif;
+    margin: 0;
+    padding: 1rem;
+    color: #161616;
+    background: #fff;
+    max-width: 480px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  h1 { font-size: 1.3rem; margin: 0 0 1rem; text-align: center; }
+  .screen { display: none; }
+  .screen[data-active="true"] { display: block; }
+
+  .big-button {
+    display: block;
+    width: 100%;
+    padding: 1.5rem 1rem;
+    margin-top: 1rem;
+    font-size: 1.2rem;
+    font-weight: 600;
+    text-align: center;
+    border: none;
+    border-radius: 12px;
+    cursor: pointer;
+  }
+  .big-button.primary { background: #0f62fe; color: #fff; }
+  .big-button.secondary { background: #f4f4f4; color: #161616; border: 2px solid #e0e0e0; }
+  .size-toggle { display: flex; gap: .5rem; margin: 1rem 0 .25rem; align-items: center; }
+  .size-toggle span { font-size: .9rem; color: #525252; }
+  .size-opt { flex: 1; padding: .7rem; font-size: 1.05rem; border: 2px solid #e0e0e0; border-radius: 6px; background: #f4f4f4; color: #161616; }
+  .size-opt.active { background: #0f62fe; border-color: #0f62fe; color: #fff; font-weight: 600; }
+  .big-button:disabled { opacity: .5; }
+
+  .back-link {
+    display: inline-block;
+    color: #0f62fe;
+    text-decoration: none;
+    font-size: 1rem;
+    margin-bottom: 1rem;
+    cursor: pointer;
+  }
+
+  input[type="file"] { display: none; }
+  .capture-preview {
+    width: 100%;
+    max-height: 40vh;
+    object-fit: contain;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    margin-top: 1rem;
+    display: none;
+  }
+
+  select, input[type="text"] {
+    width: 100%;
+    padding: .9rem;
+    font-size: 1.1rem;
+    margin-top: .5rem;
+    border: 1px solid #ccc;
+    border-radius: 8px;
+  }
+  label { display: block; margin-top: 1.2rem; font-weight: 600; font-size: .95rem; }
+
+  .status { text-align: center; margin-top: 1rem; color: #666; font-size: .95rem; }
+  .error { color: #b00020; text-align: center; margin-top: 1rem; }
+
+  .result-card {
+    border: 2px solid #0f62fe;
+    border-radius: 12px;
+    padding: 1rem;
+    margin-top: 1rem;
+    text-align: center;
+  }
+  .result-card .code { font-size: 1.8rem; font-weight: 700; }
+  .result-card .desc { color: #666; margin-top: .3rem; font-size: .95rem; }
+  .result-card img { width: 100%; max-height: 30vh; object-fit: contain; margin-top: .8rem; border-radius: 8px; }
+  .result-card.success { border-color: #24a148; }
+  .result-card.success .desc { color: #24a148; font-weight: 600; }
+
+  .voice-btn {
+    background: #f4f4f4;
+    border: 1px solid #ccc;
+    border-radius: 8px;
+    padding: .6rem 1rem;
+    font-size: 1.2rem;
+    margin-top: .5rem;
+    cursor: pointer;
+  }
+</style>
+</head>
+<body>
+
+  <div id="print-queue-bar" style="display:none; align-items:center; justify-content:space-between; gap:.5rem; font-size:.85rem; margin-bottom:.75rem; padding:.5rem .75rem; background:#f4f4f4; border:1px solid #e0e0e0; border-radius:8px;">
+    <span>🧾 20x10 queue: <span id="print-queue-count">0/4</span></span>
+    <button id="print-queue-flush-btn" onclick="flushPrintQueue()" style="width:auto; padding:.3rem .6rem; font-size:.8rem; border-radius:6px; border:1px solid #ccc; background:#fff;">Print now</button>
+  </div>
+
+  <!-- HOME -->
+  <div class="screen" id="screen-home" data-active="true">
+    <h1>WheresDat</h1>
+    <button class="big-button primary" onclick="goTo('recognize')">🔍 What is this?</button>
+    <button class="big-button secondary" onclick="goTo('register')">📦 Register a container</button>
+    <p class="status" style="margin-top:2rem;"><a href="/" class="back-link">Full admin page →</a></p>
+  </div>
+
+  <!-- RECOGNIZE -->
+  <div class="screen" id="screen-recognize">
+    <span class="back-link" onclick="goTo('home')">‹ Back</span>
+    <h1>What is this?</h1>
+    <p class="status">Take a photo of the item or container.</p>
+    <label for="recognize-file" class="big-button primary">📷 Take photo</label>
+    <input type="file" id="recognize-file" accept="image/jpeg,image/png,image/webp" capture="environment" onchange="onRecognizePhoto()">
+    <img class="capture-preview" id="recognize-preview">
+    <div class="status" id="recognize-status"></div>
+    <div class="error" id="recognize-error"></div>
+    <div id="recognize-result"></div>
+  </div>
+
+  <!-- REGISTER -->
+  <div class="screen" id="screen-register">
+    <span class="back-link" onclick="goTo('home')">‹ Back</span>
+    <h1>Register a container</h1>
+
+    <label for="register-type">Type</label>
+    <select id="register-type"></select>
+
+    <label for="register-parent">Goes inside (optional) — parent container code</label>
+    <input type="text" id="register-parent" placeholder="start typing to search…" autocapitalize="characters" autocomplete="off" oninput="searchParent()">
+    <div id="register-parent-results"></div>
+    <div class="status" id="register-parent-status"></div>
+
+    <label for="register-file" class="big-button primary" style="margin-top:1.5rem;">📷 Take reference photo</label>
+    <input type="file" id="register-file" accept="image/jpeg,image/png,image/webp" capture="environment" onchange="onRegisterPhoto()">
+    <img class="capture-preview" id="register-preview">
+    <div class="status" id="identify-status"></div>
+
+    <label for="register-locator">Note
+      <button type="button" class="voice-btn" onclick="toggleVoice()" title="Speak instead of typing">🎤</button>
+    </label>
+    <input type="text" id="register-locator" placeholder="e.g. Mounted above reloading workbench, or take a photo above to auto-fill">
+    <div class="status" id="voice-status"></div>
+
+    <button class="big-button primary" id="register-submit" onclick="submitRegister()" disabled>Register</button>
+    <div class="status" id="register-status"></div>
+    <div class="error" id="register-error"></div>
+    <div id="register-result"></div>
+  </div>
+
+  <script>
+    // Same pattern as index.html's __PRINT_AGENT_URL__ substitution —
+    // empty when not configured server-side, printButton()/printLabel()
+    // no-op/hide rather than erroring.
+    const PRINT_AGENT_URL = '__PRINT_AGENT_URL__';
+
+    function printButton(code) {
+      if (!PRINT_AGENT_URL) return '';
+      return `<button class="big-button secondary" onclick="printLabel('${code}', this)">🖨 Print label</button>`;
+    }
+
+    // Outer-tier codes need two separate physical labels (fixed 40x30mm
+    // precut stock, not continuous roll — see label_gen.py's
+    // label_parts), so a single "Print label" button doesn't let you
+    // reprint just one. Fetches which part(s) this code actually has
+    // (proxied through registration's /labels/{code}/parts) and renders
+    // one button per part, each printing only that one.
+    //
+    // A 40x30 | 20x10 toggle sits above the buttons, preselected to the
+    // type's default size, so the stock can be picked per label instead of
+    // being fixed by the type (e.g. a filament spool ITM on 40x30). Picking
+    // the other size re-asks which parts that size has (?tier=) — an
+    // outer-tier code's marker+text pair becomes one text label on 20x10.
+    const TIER_SIZE = { outer: '40x30', inner_40x30: '40x30', inner_20x10: '20x10' };
+    const SIZE_OVERRIDE_TIER = { '40x30': 'inner_40x30', '20x10': 'inner_20x10' };
+
+    function partButtons(code, parts, size) {
+      const sizeArg = size ? `'${size}'` : 'null';
+      if (parts.length === 1 && parts[0] === 'combined') {
+        return `<button class="big-button secondary" onclick="printLabel('${code}', this, null, ${sizeArg})">🖨 Print label</button>`;
+      }
+      const partLabels = { marker: '🖨 Print Marker Label', text: '🖨 Print AlphaNumeric Label' };
+      return parts.map(p =>
+        `<button class="big-button secondary" onclick="printLabel('${code}', this, '${p}', ${sizeArg})">${partLabels[p] || `🖨 Print ${p}`}</button>`
+      ).join('');
+    }
+
+    async function printButtonsHtml(code) {
+      if (!PRINT_AGENT_URL) return '';
+      try {
+        const res = await fetch(`/labels/${encodeURIComponent(code)}/parts`);
+        if (!res.ok) throw new Error();
+        const { parts, label_tier } = await res.json();
+        if (label_tier === 'none') {
+          // ITM/ITMN and anything else registered with no printable
+          // format — a lookup record, never printed, see
+          // label-maker's get_label 400 for this exact case.
+          return '';
+        }
+        const def = TIER_SIZE[label_tier];
+        const opts = ['40x30', '20x10'].map(s =>
+          `<button type="button" class="size-opt${s === def ? ' active' : ''}" onclick="pickSize('${code}', '${s}', '${def}', this)">${s.replace('x', '×')}</button>`
+        ).join('');
+        return `<div class="size-toggle"><span>Label</span>${opts}</div>` +
+               `<div id="print-btns-${code}">${partButtons(code, parts, null)}</div>`;
+      } catch (e) {
+        return printButton(code);
+      }
+    }
+
+    async function pickSize(code, size, def, el) {
+      el.parentElement.querySelectorAll('.size-opt').forEach(b => b.classList.toggle('active', b === el));
+      const holder = document.getElementById(`print-btns-${code}`);
+      const override = size === def ? null : size;
+      try {
+        const q = override ? `?tier=${SIZE_OVERRIDE_TIER[override]}` : '';
+        const res = await fetch(`/labels/${encodeURIComponent(code)}/parts${q}`);
+        const body = await res.json();
+        if (!res.ok) throw new Error(body.detail || res.statusText);
+        holder.innerHTML = partButtons(code, body.parts, override);
+      } catch (e) {
+        holder.innerHTML = `<div class="error">Can't print ${code} on ${size}: ${e.message}</div>`;
+      }
+    }
+
+    async function printLabel(code, btn, part, size) {
+      const original = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Printing…';
+      try {
+        const params = new URLSearchParams();
+        if (part) params.set('part', part);
+        if (size) params.set('size', size);
+        const url = `${PRINT_AGENT_URL}/print/${encodeURIComponent(code)}` + (params.toString() ? `?${params}` : '');
+        const res = await fetch(url, { method: 'POST' });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(body.detail || res.statusText);
+        }
+        // inner_20x10 codes queue instead of printing immediately — see
+        // print_agent.py's row-batching (one physical row = 4 cells).
+        btn.textContent = body.queued ? `Queued (${body.queue_position}/4)` : '✓ Printed';
+        setTimeout(() => { btn.textContent = original; btn.disabled = false; }, 2000);
+      } catch (e) {
+        btn.textContent = original;
+        btn.disabled = false;
+        alert(`Print failed: ${e.message}`);
+      } finally {
+        refreshPrintQueue();
+      }
+    }
+
+    async function refreshPrintQueue() {
+      if (!PRINT_AGENT_URL) return;
+      const bar = document.getElementById('print-queue-bar');
+      try {
+        const res = await fetch(`${PRINT_AGENT_URL}/print-queue`);
+        if (!res.ok) return;
+        const { queue, cells_until_flush } = await res.json();
+        const total = queue.length + cells_until_flush;
+        document.getElementById('print-queue-count').textContent = `${queue.length}/${total}`;
+        document.getElementById('print-queue-flush-btn').disabled = queue.length === 0;
+        bar.style.display = 'flex';
+      } catch (e) {
+        // Print agent not reachable from this device — leave the bar hidden.
+      }
+    }
+
+    async function flushPrintQueue() {
+      const btn = document.getElementById('print-queue-flush-btn');
+      btn.disabled = true;
+      const original = btn.textContent;
+      btn.textContent = '…';
+      try {
+        const res = await fetch(`${PRINT_AGENT_URL}/print-queue/flush`, { method: 'POST' });
+        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || res.statusText);
+      } catch (e) {
+        alert(`Print failed: ${e.message}`);
+      } finally {
+        btn.textContent = original;
+        refreshPrintQueue();
+      }
+    }
+
+    refreshPrintQueue();
+
+    function goTo(name) {
+      document.querySelectorAll('.screen').forEach(s => s.dataset.active = 'false');
+      document.getElementById('screen-' + name).dataset.active = 'true';
+    }
+
+    // ---- Recognize ----
+    async function onRecognizePhoto() {
+      const fileInput = document.getElementById('recognize-file');
+      const file = fileInput.files[0];
+      if (!file) return;
+
+      const preview = document.getElementById('recognize-preview');
+      preview.src = URL.createObjectURL(file);
+      preview.style.display = 'block';
+
+      const statusEl = document.getElementById('recognize-status');
+      const errorEl = document.getElementById('recognize-error');
+      const resultEl = document.getElementById('recognize-result');
+      errorEl.textContent = '';
+      resultEl.innerHTML = '';
+      statusEl.textContent = 'Identifying… (first call can take 15-20s)';
+
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
+        const res = await fetch('/containers/find-by-photo', { method: 'POST', body: formData });
+        if (!res.ok) {
+          const body = await res.json();
+          throw new Error(body.detail || res.statusText);
+        }
+        const data = await res.json();
+        statusEl.textContent = `Identified as "${data.identification.name}"`;
+
+        if (data.resolved) {
+          const c = data.resolved;
+          resultEl.innerHTML = `
+            <div class="result-card">
+              <div class="code">${c.code}</div>
+              <div class="desc">${c.display_name ? c.display_name.replace(/</g, '&lt;') : ''}</div>
+              ${c.has_photo ? `<img src="/containers/${encodeURIComponent(c.code)}/photo">` : ''}
+            </div>
+            ${printButton(c.code)}
+          `;
+        } else {
+          resultEl.innerHTML = `
+            <p class="status">No match found.</p>
+            <button class="big-button secondary" onclick="goTo('register')">Register this as new →</button>
+          `;
+        }
+      } catch (e) {
+        statusEl.textContent = '';
+        errorEl.textContent = e.message;
+      }
+    }
+
+    // ---- Register ----
+    let registerPhotoFile = null;
+    // The RAW ai-identify output, captured once at preview time and
+    // reused as-is when the container gets photo-uploaded below —
+    // deliberately kept separate from whatever ends up in the (possibly
+    // human-edited) Note field, so repeat "where does this go" photos of
+    // the same item stay comparable to each other over time even after
+    // edits to the human-facing note.
+    let registerAiDescription = null;
+    // Validated parent selection — null unless picked from the search
+    // results below, so a typo can never silently become the parent_code
+    // sent to the server (see submitRegister's check).
+    let registerParentCode = null;
+
+    async function loadTypesForRegister() {
+      const res = await fetch('/container-types');
+      const types = await res.json();
+      document.getElementById('register-type').innerHTML =
+        types.map(t => `<option value="${t.prefix}">${t.prefix} — ${t.name}</option>`).join('');
+    }
+
+    let parentSearchDebounce = null;
+    function searchParent() {
+      registerParentCode = null;
+      document.getElementById('register-parent-status').textContent = '';
+      clearTimeout(parentSearchDebounce);
+      parentSearchDebounce = setTimeout(doSearchParent, 250);
+    }
+
+    async function doSearchParent() {
+      const q = document.getElementById('register-parent').value.trim();
+      const resultsEl = document.getElementById('register-parent-results');
+      if (!q) { resultsEl.innerHTML = ''; return; }
+      try {
+        const res = await fetch(`/containers/search?q=${encodeURIComponent(q)}`);
+        const containers = await res.json();
+        if (containers.length === 0) {
+          resultsEl.innerHTML = '<p class="status">No matching containers.</p>';
+          return;
+        }
+        resultsEl.innerHTML = containers.slice(0, 8).map(c => `
+          <button type="button" class="big-button secondary parent-pick" onclick="pickParent('${c.code}')">
+            ${c.code}${c.display_name ? ' — ' + c.display_name.replace(/</g, '&lt;').slice(0, 40) : ''}
+          </button>
+        `).join('');
+      } catch (e) {
+        resultsEl.innerHTML = '';
+      }
+    }
+
+    function pickParent(code) {
+      registerParentCode = code;
+      document.getElementById('register-parent').value = code;
+      document.getElementById('register-parent-results').innerHTML = '';
+      document.getElementById('register-parent-status').textContent = `✓ goes inside ${code}`;
+    }
+
+    async function onRegisterPhoto() {
+      const fileInput = document.getElementById('register-file');
+      registerPhotoFile = fileInput.files[0];
+      if (!registerPhotoFile) return;
+      const preview = document.getElementById('register-preview');
+      preview.src = URL.createObjectURL(registerPhotoFile);
+      preview.style.display = 'block';
+      document.getElementById('register-submit').disabled = false;
+
+      registerAiDescription = null;
+      const statusEl = document.getElementById('identify-status');
+      statusEl.textContent = 'Identifying… (first call can take 15-20s)';
+      try {
+        const formData = new FormData();
+        formData.append('file', registerPhotoFile);
+        const res = await fetch('/identify-preview', { method: 'POST', body: formData });
+        if (!res.ok) throw new Error();
+        const data = await res.json();
+        registerAiDescription = data.description;
+        const noteEl = document.getElementById('register-locator');
+        if (!noteEl.value.trim()) {
+          // Short (<=6 word) name as the note/display name; the full label
+          // text still rides along as ai_description for search.
+          noteEl.value = data.short_name || data.description;
+        }
+        statusEl.textContent = 'Identified — edit the note below if you want to change it';
+      } catch (e) {
+        statusEl.textContent = 'Could not auto-identify — enter a note manually if you want one';
+      }
+    }
+
+    async function submitRegister() {
+      const type_prefix = document.getElementById('register-type').value;
+      const parentTyped = document.getElementById('register-parent').value.trim();
+      const errorEl = document.getElementById('register-error');
+      // Typed something but never picked a match from the search results —
+      // block rather than silently send a code that might not exist (the
+      // whole point of the live search: no more TUB-01 typos going in
+      // unnoticed).
+      if (parentTyped && !registerParentCode) {
+        errorEl.textContent = 'Pick a parent from the search results, or clear the field to register with no parent.';
+        return;
+      }
+      const parent_code = registerParentCode;
+      const locator = document.getElementById('register-locator').value.trim();
+      const statusEl = document.getElementById('register-status');
+      const resultEl = document.getElementById('register-result');
+      errorEl.textContent = '';
+      resultEl.innerHTML = '';
+      statusEl.textContent = 'Registering…';
+      document.getElementById('register-submit').disabled = true;
+
+      try {
+        const res = await fetch('/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type_prefix, parent_code }),
+        });
+        if (!res.ok) {
+          const body = await res.json();
+          throw new Error(body.detail || res.statusText);
+        }
+        const container = await res.json();
+
+        if (registerPhotoFile) {
+          statusEl.textContent = 'Uploading photo…';
+          const formData = new FormData();
+          formData.append('file', registerPhotoFile);
+          // Reuse the preview-time identification rather than letting the
+          // upload endpoint run a fresh one — this IS the text the human
+          // already reviewed (or started from and edited into the Note
+          // field), captured once so it stays what they actually saw.
+          if (registerAiDescription) {
+            formData.append('ai_description', registerAiDescription);
+          }
+          await fetch(`/containers/${encodeURIComponent(container.code)}/photo`, { method: 'POST', body: formData });
+        }
+
+        if (locator) {
+          await fetch(`/containers/${encodeURIComponent(container.code)}/locator`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ locator }),
+          });
+        }
+
+        statusEl.textContent = '';
+        const printBtns = await printButtonsHtml(container.code);
+        resultEl.innerHTML = `
+          <div class="result-card success">
+            <div class="code">${container.code}</div>
+            <div class="desc">✓ Registered — ready to print the label${printBtns.includes('Marker') ? 's' : ''}</div>
+          </div>
+          ${printBtns}
+          <button class="big-button secondary" onclick="resetRegister()">Register another →</button>
+        `;
+      } catch (e) {
+        statusEl.textContent = '';
+        errorEl.textContent = e.message;
+        document.getElementById('register-submit').disabled = false;
+      }
+    }
+
+    function resetRegister() {
+      // register-parent / registerParentCode are deliberately NOT cleared
+      // — registering a run of items into the same box (the actual common
+      // case this was added for) shouldn't mean re-searching the parent
+      // every time.
+      registerPhotoFile = null;
+      registerAiDescription = null;
+      document.getElementById('register-locator').value = '';
+      document.getElementById('register-preview').style.display = 'none';
+      document.getElementById('identify-status').textContent = '';
+      document.getElementById('register-result').innerHTML = '';
+      document.getElementById('register-submit').disabled = true;
+    }
+
+    // ---- Voice (push-to-talk, same pattern as the desktop admin page) ----
+    const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
+    let recognition = null;
+    let voiceListening = false;
+
+    if (SpeechRecognitionAPI) {
+      recognition = new SpeechRecognitionAPI();
+      recognition.continuous = false;
+      recognition.interimResults = true;
+      recognition.lang = 'en-US';
+      recognition.onresult = (event) => {
+        let finalText = '';
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          if (event.results[i].isFinal) finalText += event.results[i][0].transcript;
+        }
+        if (finalText) {
+          const el = document.getElementById('register-locator');
+          el.value = (el.value ? el.value + ' ' : '') + finalText.trim();
+        }
+      };
+      recognition.onerror = (event) => {
+        voiceListening = false;
+        document.getElementById('voice-status').textContent =
+          event.error === 'no-speech' ? '' : `Speech error: ${event.error}`;
+      };
+      recognition.onend = () => { voiceListening = false; };
+    }
+
+    function toggleVoice() {
+      if (!recognition) {
+        document.getElementById('voice-status').textContent = 'Voice input not supported in this browser';
+        return;
+      }
+      if (voiceListening) {
+        recognition.stop();
+      } else {
+        document.getElementById('voice-status').textContent = '';
+        recognition.start();
+        voiceListening = true;
+      }
+    }
+
+    loadTypesForRegister();
+  </script>
+</body>
+</html>

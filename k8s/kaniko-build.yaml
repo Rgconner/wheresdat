@@ -1,0 +1,209 @@
+# Kaniko build job — clones wheresdat + kanbanman + code-library from
+# git.example.com, builds all 5 images, pushes to the internal gitea registry
+# (registry.example.com/wheresdat/*).
+#
+# Run:
+#   kubectl -n wheresdat delete job wheresdat-build --ignore-not-found
+#   kubectl apply -f k8s/kaniko-build.yaml
+#   kubectl -n wheresdat logs -f job/wheresdat-build
+#   kubectl -n wheresdat rollout restart deployment/datastore deployment/label-maker deployment/kanbanman deployment/registration deployment/vision-identify
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: wheresdat-build
+  namespace: wheresdat
+spec:
+  ttlSecondsAfterFinished: 3600
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      initContainers:
+        - name: git-clone-wheresdat
+          image: alpine/git:latest
+          command: ["sh", "-c"]
+          args:
+            - >-
+              git clone --depth=1
+              https://github.com/Rgconner/wheresdat.git /workspace/wheresdat
+              && echo 'Clone OK' && ls /workspace/wheresdat
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+          env:
+            - name: GIT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: gitea-secrets
+                  key: admin-user
+            - name: GIT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: gitea-secrets
+                  key: admin-password
+        - name: git-clone-kanbanman
+          image: alpine/git:latest
+          command: ["sh", "-c"]
+          args:
+            - >-
+              git clone --depth=1
+              https://${GIT_USER}:${GIT_TOKEN}@git.example.com/kanbanman.git /workspace/kanbanman
+              && echo 'Clone OK' && ls /workspace/kanbanman
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+          env:
+            - name: GIT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: gitea-secrets
+                  key: admin-user
+            - name: GIT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: gitea-secrets
+                  key: admin-password
+        - name: git-clone-code-library
+          image: alpine/git:latest
+          command: ["sh", "-c"]
+          args:
+            - >-
+              git clone --depth=1
+              https://${GIT_USER}:${GIT_TOKEN}@git.example.com/code-library.git /workspace/code-library
+              && echo 'Clone OK' && ls /workspace/code-library
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+          env:
+            - name: GIT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: gitea-secrets
+                  key: admin-user
+            - name: GIT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: gitea-secrets
+                  key: admin-password
+      containers:
+        - name: kaniko-datastore
+          image: gcr.io/kaniko-project/executor:latest
+          args:
+            - --context=dir:///workspace/wheresdat/services/datastore
+            - --dockerfile=/workspace/wheresdat/services/datastore/Dockerfile
+            - --destination=registry.example.com/wheresdat/datastore:latest
+            - --cache=true
+            - --cache-repo=registry.example.com/wheresdat/cache-datastore
+            - --cache-run-layers=true
+            - --cache-copy-layers=false
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+            - name: docker-config
+              mountPath: /kaniko/.docker
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: 2000m
+              memory: 3Gi
+        - name: kaniko-label-maker
+          image: gcr.io/kaniko-project/executor:latest
+          args:
+            - --context=dir:///workspace/wheresdat/services/label-maker
+            - --dockerfile=/workspace/wheresdat/services/label-maker/Dockerfile
+            - --destination=registry.example.com/wheresdat/label-maker:latest
+            - --cache=true
+            - --cache-repo=registry.example.com/wheresdat/cache-label-maker
+            - --cache-run-layers=true
+            - --cache-copy-layers=false
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+            - name: docker-config
+              mountPath: /kaniko/.docker
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: 2000m
+              memory: 3Gi
+        - name: kaniko-registration
+          image: gcr.io/kaniko-project/executor:latest
+          args:
+            - --context=dir:///workspace/wheresdat/services/registration
+            - --dockerfile=/workspace/wheresdat/services/registration/Dockerfile
+            - --destination=registry.example.com/wheresdat/registration:latest
+            - --cache=true
+            - --cache-repo=registry.example.com/wheresdat/cache-registration
+            - --cache-run-layers=true
+            - --cache-copy-layers=false
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+            - name: docker-config
+              mountPath: /kaniko/.docker
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: 2000m
+              memory: 3Gi
+        - name: kaniko-kanbanman
+          image: gcr.io/kaniko-project/executor:latest
+          args:
+            - --context=dir:///workspace/kanbanman
+            - --dockerfile=/workspace/kanbanman/Dockerfile
+            - --destination=registry.example.com/wheresdat/kanbanman:latest
+            - --cache=true
+            - --cache-repo=registry.example.com/wheresdat/cache-kanbanman
+            - --cache-run-layers=true
+            - --cache-copy-layers=false
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+            - name: docker-config
+              mountPath: /kaniko/.docker
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: 2000m
+              memory: 3Gi
+        - name: kaniko-vision-identify
+          image: gcr.io/kaniko-project/executor:latest
+          args:
+            - --context=dir:///workspace/code-library/services/vision-identify
+            - --dockerfile=/workspace/code-library/services/vision-identify/Dockerfile
+            - --destination=registry.example.com/wheresdat/vision-identify:latest
+            - --cache=true
+            - --cache-repo=registry.example.com/wheresdat/cache-vision-identify
+            - --cache-run-layers=true
+            - --cache-copy-layers=false
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+            - name: docker-config
+              mountPath: /kaniko/.docker
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: 2000m
+              memory: 3Gi
+      volumes:
+        - name: workspace
+          emptyDir: {}
+        - name: docker-config
+          projected:
+            sources:
+              - secret:
+                  name: gitea-registry
+                  items:
+                    - key: .dockerconfigjson
+                      path: config.json

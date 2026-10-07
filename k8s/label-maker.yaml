@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: label-maker
+  namespace: wheresdat
+  labels:
+    app: label-maker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: label-maker
+  template:
+    metadata:
+      labels:
+        app: label-maker
+    spec:
+      imagePullSecrets:
+        - name: gitea-registry
+      containers:
+        - name: label-maker
+          image: registry.example.com/wheresdat/label-maker:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8103
+              name: http
+          envFrom:
+            - configMapRef:
+                name: wheresdat-config
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8103
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8103
+            initialDelaySeconds: 15
+            periodSeconds: 30
+---
+# LoadBalancer, not ClusterIP — scripts/print_label.py runs on Russ's own
+# Windows machine (the Phomemo M110S is USB-attached there, only visible as
+# a local Windows print queue) and fetches the label PNG from this service
+# over HTTP, so it needs an address reachable from outside the cluster.
+apiVersion: v1
+kind: Service
+metadata:
+  name: label-maker
+  namespace: wheresdat
+  labels:
+    app: label-maker
+spec:
+  type: LoadBalancer
+  selector:
+    app: label-maker
+  ports:
+    - name: http
+      port: 8103
+      targetPort: 8103

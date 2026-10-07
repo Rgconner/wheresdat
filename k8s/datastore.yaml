@@ -1,0 +1,96 @@
+# Persistent volume for reference photos (separate from the db, which now
+# lives in the wheresdat CNPG cluster — see db.yaml).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: wheresdat-photos
+  namespace: wheresdat
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: datastore
+  namespace: wheresdat
+  labels:
+    app: datastore
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: datastore
+  template:
+    metadata:
+      labels:
+        app: datastore
+    spec:
+      imagePullSecrets:
+        - name: gitea-registry
+      containers:
+        - name: datastore
+          image: registry.example.com/wheresdat/datastore:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8101
+              name: http
+          env:
+            - name: _DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: wheresdat-db-secret
+                  key: username
+            - name: _DB_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: wheresdat-db-secret
+                  key: password
+            - name: DATABASE_URL
+              value: "postgresql+psycopg://$(_DB_USER):$(_DB_PASS)@wheresdat-rw.wheresdat.svc:5432/wheresdat"
+          volumeMounts:
+            - name: photos
+              mountPath: /data
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8101
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8101
+            initialDelaySeconds: 15
+            periodSeconds: 30
+      volumes:
+        - name: photos
+          persistentVolumeClaim:
+            claimName: wheresdat-photos
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: datastore
+  namespace: wheresdat
+  labels:
+    app: datastore
+spec:
+  selector:
+    app: datastore
+  ports:
+    - name: http
+      port: 8101
+      targetPort: 8101

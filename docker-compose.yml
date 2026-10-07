@@ -1,0 +1,90 @@
+networks:
+  wheresdat-net:
+    driver: bridge
+
+volumes:
+  wheresdat-db:
+
+services:
+  datastore:
+    build: ./services/datastore
+    ports:
+      - "${DATASTORE_PORT:-8101}:8101"
+    environment:
+      # NOT /app — same lesson as kanbanman below: mounting a populated
+      # named volume over a service's own /app silently shadows its code
+      # with whatever's already in that volume. This is exactly what was
+      # happening here undetected: every datastore code change since the
+      # volume was first created was being ignored at runtime.
+      DATABASE_URL: sqlite:////data/totevision.db
+    volumes:
+      - wheresdat-db:/data
+    networks:
+      - wheresdat-net
+    restart: unless-stopped
+
+  registration:
+    build: ./services/registration
+    ports:
+      - "${REGISTRATION_PORT:-8102}:8102"
+    environment:
+      DATASTORE_URL: http://datastore:8101
+      # code-library is a separate compose project (its own network) —
+      # host.docker.internal is how a container reaches a service
+      # published on the host from another project. Same vision-identify
+      # instance serves both the live and QA wheresdat stacks; it's
+      # stateless per-request, no isolation need like the wheresdat db has.
+      VISION_IDENTIFY_URL: ${VISION_IDENTIFY_URL:-http://host.docker.internal:8201}
+      # jepa-embed moved to the Talos cluster (namespace jepa-embed,
+      # LoadBalancer IP via MetalLB) once proven working locally — see
+      # code-library/services/jepa-embed/k8s/deployment.yaml. Needed an
+      # OpenWRT static route (192.0.2.10/24 via 192.0.2.11) since the
+      # MetalLB pool is a separate subnet from the node LAN; L2-mode
+      # ARP announcements don't cross that boundary without it.
+      JEPA_EMBED_URL: ${JEPA_EMBED_URL:-http://192.0.2.12:8080}
+      KANBAN_URL: http://kanbanman:8300
+      # Internal (KANBAN_URL) vs browser-facing (KANBAN_PUBLIC_URL) are
+      # genuinely different values once there's more than one stack:
+      # internal service-to-service traffic stays on the docker network
+      # at the container's own port always, but the widget assets/API
+      # calls made BY THE BROWSER need the host-mapped port, which
+      # differs per environment (8300 live, 8310 QA).
+      KANBAN_PUBLIC_URL: http://localhost:${KANBAN_PORT:-8300}
+    depends_on:
+      - datastore
+      - kanbanman
+    networks:
+      - wheresdat-net
+    restart: unless-stopped
+
+  label-maker:
+    build: ./services/label-maker
+    ports:
+      - "${LABEL_MAKER_PORT:-8103}:8103"
+    environment:
+      DATASTORE_URL: http://datastore:8101
+    depends_on:
+      - datastore
+    networks:
+      - wheresdat-net
+    restart: unless-stopped
+
+  kanbanman:
+    build: ../kanbanman
+    ports:
+      - "${KANBAN_PORT:-8300}:8300"
+    environment:
+      # Same physical db file as datastore's own volume, not a separate
+      # silo — KanBanMan's tables (kanban_cards, kanban_columns) just live
+      # alongside containers/container_types in it. Mounted at /data, NOT
+      # /app — mounting a populated named volume over /app would overlay
+      # this service's own code with whatever's already in that volume
+      # (learned the hard way: it silently ran datastore's main.py).
+      KANBAN_DB_URL: sqlite:////data/totevision.db
+    volumes:
+      - wheresdat-db:/data
+    depends_on:
+      - datastore
+    networks:
+      - wheresdat-net
+    restart: unless-stopped

@@ -1,0 +1,134 @@
+# Internal only (ClusterIP) — called server-side by registration
+# (photo upload -> ai_description, find-by-photo), never from the browser.
+#
+# Switched from Russ's own workstation running llama.cpp (VISION_PRIMARY=
+# local) to ClinePass (VISION_PRIMARY=openai) after a 2026-09-16 OS loss
+# took the local llama.cpp server down. ClinePass is subscription-billed
+# (no per-token cost, a rolling usage limit instead, like Claude Pro),
+# reachable from anywhere rather than tied to one LAN workstation being
+# on, and its
+# /chat/completions endpoint is OpenAI-compatible so this needed no code
+# change beyond one compatibility fix: it wraps the actual completion in
+# an extra {"data": {...}, "success": true} envelope instead of returning
+# it at the top level, which _identify_openai() in code-library/services/
+# vision-identify/main.py now auto-detects and unwraps. Confirmed live
+# against a real photo: qwen3.7-plus correctly identified it with real
+# reasoning, not a refusal or guess.
+#
+# wheresdat-vision-clinepass/api-key is NOT defined in this repo -- created
+# directly against the cluster (`kubectl create secret generic
+# wheresdat-vision-clinepass -n wheresdat --from-literal=api-key=...`),
+# same as wheresdat-db-secret elsewhere in k8s/. Never commit the raw key.
+#
+# Both slots point at ClinePass with the same key but two different real
+# models (minimax-m3 primary, qwen3.8-max secondary via LLM_MODEL_SECONDARY)
+# for a genuine cross-check, not the usual "secondary has no key, degrades
+# to medium" pattern -- benchmarked against all 13 ClinePass models first
+# (see the code-library commit): these two were the fastest of the ones
+# that actually support vision input and transcribe label text correctly,
+# ~4x faster than qwen3.7-plus (the original pick) which turned out to
+# always run an expensive reasoning trace on this gateway with no way to
+# disable it. _identify()_ now runs primary/secondary concurrently
+# (asyncio.gather, not sequential awaits) so two real calls cost the
+# slower of the two, not their sum -- ~2s combined in testing.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vision-identify
+  namespace: wheresdat
+  labels:
+    app: vision-identify
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vision-identify
+  template:
+    metadata:
+      labels:
+        app: vision-identify
+    spec:
+      imagePullSecrets:
+        - name: gitea-registry
+      containers:
+        - name: vision-identify
+          image: registry.example.com/wheresdat/vision-identify:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8201
+              name: http
+          env:
+            - name: VISION_PRIMARY
+              value: "openai"
+            - name: VISION_PRIMARY_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: wheresdat-vision-clinepass
+                  key: api-key
+            - name: VISION_SECONDARY
+              value: "openai"
+            - name: VISION_SECONDARY_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: wheresdat-vision-clinepass
+                  key: api-key
+            - name: LLM_BASE_URL
+              value: "https://api.cline.bot/api/v1"
+            - name: LLM_MODEL
+              value: "cline-pass/minimax-m3"
+            - name: LLM_MODEL_SECONDARY
+              value: "cline-pass/qwen3.8-max"
+            - name: LLM_MAX_TOKENS
+              value: "1024"
+            - name: EXTERNAL_TIMEOUT_SECONDS
+              value: "60"
+            - name: CROP_FRAC
+              # Default 0.55 crops to a centered square of the image's
+              # SHORTER side — for wide-and-flat reference photos (a box
+              # lid shot top-down, filling most of a landscape frame,
+              # which is the norm here) that discards most of the width.
+              # Confirmed live on a real registered container's photo:
+              # 0.55 cropped out "600 Pieces", 3 of 10 table rows, and all
+              # of "M3 Washers 200pcs" before the model ever saw them —
+              # not a model accuracy problem, an input problem. 1.0 keeps
+              # the full shorter-side extent (still square, so a very wide
+              # photo's far left/right edges can still fall outside it,
+              # but confirmed to preserve this label completely). Only
+              # overridden here, not in code-library's shared default —
+              # other services built on vision-identify may have more
+              # centered/compact subjects where 0.55 is the better choice.
+              value: "1.0"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8201
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8201
+            initialDelaySeconds: 15
+            periodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vision-identify
+  namespace: wheresdat
+  labels:
+    app: vision-identify
+spec:
+  selector:
+    app: vision-identify
+  ports:
+    - name: http
+      port: 8201
+      targetPort: 8201

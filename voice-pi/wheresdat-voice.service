@@ -1,0 +1,23 @@
+[Unit]
+Description=WheresDat hands-free voice retrieval
+After=network-online.target sound.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=rgcon
+WorkingDirectory=/home/rgcon/wheresdat-voice
+ExecStart=/home/rgcon/wheresdat-voice/.venv/bin/python3 /home/rgcon/wheresdat-voice/main.py
+# Audio (incl. Bluetooth headsets) goes through the user's PipeWire session,
+# not a system one; point at it so ALSA's "default" device reaches it.
+# 1000 = rgcon's uid; requires `loginctl enable-linger rgcon` so that
+# session exists at boot without anyone logged in.
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+Restart=on-failure
+RestartSec=5
+# Cache resync/network hiccups shouldn't be fatal, but a hard crash
+# (model load failure, audio device gone) should retry rather than
+# leave the device silently dead until someone notices.
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,739 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>WheresDat — Registration</title>
+<link rel="stylesheet" href="__KANBAN_PUBLIC_URL__/widget.css">
+<style>
+  body { font-family: system-ui, sans-serif; margin: 0; padding: 1.5rem; color: #222; }
+  h1 { font-size: 1.4rem; margin: 0 0 1rem; }
+  h2 { font-size: 1.1rem; margin-top: 0; border-bottom: 1px solid #ccc; padding-bottom: .3rem; }
+  label { display: block; margin-top: .6rem; font-size: .9rem; }
+  input, select { width: 100%; padding: .4rem; margin-top: .2rem; box-sizing: border-box; font-size: 1rem; }
+  button { margin-top: .8rem; padding: .5rem 1rem; font-size: 1rem; cursor: pointer; }
+  table { width: 100%; border-collapse: collapse; margin-top: .5rem; font-size: .9rem; }
+  th, td { text-align: left; padding: .3rem .5rem; border-bottom: 1px solid #eee; }
+  .error { color: #b00020; margin-top: .5rem; }
+  .codes { font-family: monospace; background: #f5f5f5; padding: .6rem; margin-top: .6rem; white-space: pre-wrap; }
+
+  /* Search-and-pick result list, used anywhere a code has to be picked
+     from real existing containers rather than typed blind (move,
+     find-by-photo results) — a code-pick result always shows a
+     thumbnail so you can visually confirm it's the container you
+     think it is before committing, not just trust the code string. */
+  .pick-results { display: flex; flex-direction: column; gap: .3rem; margin-top: .4rem; max-height: 260px; overflow-y: auto; }
+  .pick-result { display: flex; align-items: center; gap: .6rem; padding: .4rem .5rem; border: 1px solid #ddd; border-radius: 4px; background: #fff; cursor: pointer; text-align: left; font-size: .9rem; }
+  .pick-result:hover { background: #f0f6ff; border-color: #0f62fe; }
+  .pick-thumb { width: 40px; height: 40px; object-fit: cover; border-radius: 3px; border: 1px solid #ddd; flex: 0 0 40px; background: #f5f5f5; }
+  .pick-thumb.placeholder { display: flex; align-items: center; justify-content: center; font-size: 1.1rem; color: #bbb; }
+  .picked-preview { display: flex; align-items: center; gap: .6rem; margin-top: .4rem; padding: .4rem .5rem; background: #f0f6ff; border: 1px solid #0f62fe; border-radius: 4px; font-size: .9rem; }
+
+  /* Left menu / right work-area layout — nothing prepopulated below a
+     scrolling stack of forms. #kbm-work (the live task board) and
+     #action-panel (a form or explanation, host-controlled) occupy the
+     SAME slot; exactly one is visible at a time. */
+  .app-layout { display: flex; gap: 1rem; align-items: flex-start; }
+  #kbm-menu { flex: 0 0 260px; }
+  .work-pane { flex: 1; min-width: 0; }
+  #kbm-work, #action-panel { overflow-x: auto; }
+  #action-panel { border: 1px solid #e0e0e0; padding: 1rem 1.25rem; background: #fff; }
+  .back-to-board { background: none; border: none; color: #0f62fe; cursor: pointer; padding: 0; margin: 0 0 1rem; font-size: .9rem; }
+  .panel-section { display: none; }
+  .panel-section[data-active="true"] { display: block; }
+</style>
+</head>
+<body>
+  <h1>WheresDat — Registration</h1>
+  <!-- Mirror of phone.html's "Full admin page →" link. Nothing auto-routes
+       touch devices to /phone, so a tablet landing here needs a way over. -->
+  <p style="margin:-.5rem 0 1rem;"><a href="/phone">📷 Phone / camera mode →</a></p>
+
+
+  <div id="print-queue-bar" style="display:none; align-items:center; gap:.5rem; font-size:.9rem; margin-bottom:1rem; padding:.5rem .75rem; background:#f5f5f5; border:1px solid #ddd; border-radius:4px; max-width:fit-content;">
+    <span>🧾 20x10 row queue: <span id="print-queue-count">0/4</span></span>
+    <button id="print-queue-flush-btn" onclick="flushPrintQueue()" style="width:auto; margin:0;">Print now (pad rest blank)</button>
+    <span id="print-queue-status" style="color:#666;"></span>
+  </div>
+
+  <div class="app-layout">
+    <div id="kbm-menu"></div>
+    <div class="work-pane">
+      <div id="kbm-work"></div>
+      <div id="action-panel" hidden>
+        <button type="button" class="back-to-board" onclick="closeActionPanel()">‹ Back to board</button>
+
+        <div class="panel-section" id="panel-explain">
+          <h2 id="panel-explain-title"></h2>
+          <p id="panel-explain-body"></p>
+        </div>
+
+        <div class="panel-section" id="panel-register-type">
+          <h2>Register a new type</h2>
+          <table id="types-table"><thead><tr><th>Prefix</th><th>Name</th><th>Sub-bins</th><th>Numbering</th></tr></thead><tbody></tbody></table>
+          <label>Prefix (2-3 letters)<input id="new-prefix" maxlength="4" placeholder="e.g. CB"></label>
+          <label>Name — the manual override when identification fails entirely; free text always works
+            <span style="display:flex; gap:.4rem; align-items:center;">
+              <input id="new-name" style="flex:1;" placeholder="e.g. clear plastic bucket, ~1 cu ft, or a one-off oddball description">
+              <button type="button" id="voice-btn" onclick="toggleVoice()" title="Speak the name instead of typing it" style="margin-top:.2rem; white-space:nowrap;">🎤</button>
+            </span>
+          </label>
+          <div id="voice-status" style="font-size:.85rem; color:#666; margin-top:.2rem;"></div>
+          <label>Default sub-bin count (optional — e.g. 20 for a Harbor Freight 20-bin case)<input id="new-child-count" type="number" min="1" placeholder="leave blank if none"></label>
+          <label>Numbering
+            <select id="new-numbering-scope">
+              <option value="global" selected>global — code independent of current parent (default; the common case — a self-contained item that just happens to be stored somewhere, e.g. a parts tray, a tub, a box you might move later)</option>
+              <option value="parent">parent — code tied to whichever parent it's created under (narrow case: the sub-container has no identity of its own outside that exact parent, e.g. a Harbor Freight case's built-in bins)</option>
+            </select>
+          </label>
+          <button onclick="registerType()">Create type</button>
+          <div id="type-error" class="error"></div>
+        </div>
+
+        <div class="panel-section" id="panel-register-case">
+          <h2>Register a case (with its standard sub-bins)</h2>
+          <label>Type
+            <select id="case-type"></select>
+          </label>
+          <label>Domain <input id="case-domain" value="general" placeholder="e.g. honda-cb550, general"></label>
+          <button onclick="registerWithChildren()">Register case + sub-bins</button>
+          <div id="case-error" class="error"></div>
+          <div id="case-result" class="codes"></div>
+        </div>
+
+        <div class="panel-section" id="panel-stage-containers">
+          <h2>Stage containers</h2>
+          <label>Type
+            <select id="stage-type"></select>
+          </label>
+          <label>Count<input id="stage-count" type="number" min="1" max="50" value="1"></label>
+          <label>Parent code (optional, for nested bins)<input id="stage-parent" placeholder="e.g. AA-01"></label>
+          <label>Domain <input id="stage-domain" value="general" placeholder="e.g. honda-cb550, general"></label>
+          <button onclick="stageContainers()">Stage</button>
+          <div id="stage-error" class="error"></div>
+          <div id="stage-result" class="codes"></div>
+        </div>
+
+        <div class="panel-section" id="panel-move-container">
+          <h2>Move a container</h2>
+          <label>Container to move<input id="move-code" placeholder="start typing to search…" autocomplete="off" oninput="searchPick('move-code', 'move-code-results', pickMoveCode)"></label>
+          <div id="move-code-results" class="pick-results"></div>
+          <div id="move-code-preview"></div>
+
+          <label>New parent (leave blank to pull it out to the spare-parts pool, no home)<input id="move-parent" placeholder="start typing to search…" autocomplete="off" oninput="searchPick('move-parent', 'move-parent-results', pickMoveParent)"></label>
+          <div id="move-parent-results" class="pick-results"></div>
+          <div id="move-parent-preview"></div>
+
+          <button onclick="moveContainer()">Move</button>
+          <div id="move-error" class="error"></div>
+          <div id="move-result" class="codes"></div>
+        </div>
+
+        <div class="panel-section" id="panel-set-locator">
+          <h2>Set locator</h2>
+          <p style="font-size:.85rem; color:#666; margin-top:0;">A free-text note on one specific container — distinguishes it from same-type siblings. Not a printed label. E.g. "Mounted above reloading workbench", "Halloween crafts".</p>
+          <label>Container code<input id="locator-code" placeholder="e.g. RK-001"></label>
+          <label>Locator (leave blank to clear)<input id="locator-text" placeholder="e.g. Mounted above reloading workbench"></label>
+          <button onclick="setLocator()">Set locator</button>
+          <div id="locator-error" class="error"></div>
+          <div id="locator-result" class="codes"></div>
+        </div>
+
+        <div class="panel-section" id="panel-attach-photo">
+          <h2>Attach photo</h2>
+          <p style="font-size:.85rem; color:#666; margin-top:0;">The reference photo, label visible as the touchpoint. Matters most for visually-variable types (a GB could be anything) — less for uniform ones (every HF looks the same). One per container; uploading again replaces it.</p>
+          <label>Container code<input id="photo-code" placeholder="e.g. GB-001" oninput="loadPhotoPreview()"></label>
+          <label>Photo<input id="photo-file" type="file" accept="image/jpeg,image/png,image/webp" capture="environment"></label>
+          <button onclick="uploadPhoto()">Upload</button>
+          <div id="photo-error" class="error"></div>
+          <div id="photo-result" class="codes"></div>
+          <img id="photo-preview" style="max-width:100%; margin-top:.8rem; display:none; border:1px solid #ccc;">
+        </div>
+
+        <div class="panel-section" id="panel-find">
+          <h2>Find a container</h2>
+          <p style="font-size:.85rem; color:#666; margin-top:0;">Searches code, domain, locator, and whatever text vision-identify pulled off a reference photo (a product name, a printed spec, brand text — not verified fact, just search fodder). A manually-set locator always wins for display even when a match came from AI text.</p>
+          <label>Search<input id="find-query" placeholder="e.g. washer, 233-5010, Halloween" oninput="findContainers()"></label>
+          <div id="find-error" class="error"></div>
+          <div id="find-results"></div>
+        </div>
+
+        <div class="panel-section" id="panel-find-photo">
+          <h2>Find by photo</h2>
+          <p style="font-size:.85rem; color:#666; margin-top:0;">Have the item in hand but don't know where it lives? Take a photo — this identifies it, text-searches for a match, and only if that's ambiguous (more than one candidate) falls back to comparing the photo itself against each candidate's stored reference photo. First call can be slow (the local model may need to load); it's not stuck.</p>
+          <label>Photo<input id="find-photo-file" type="file" accept="image/jpeg,image/png,image/webp" capture="environment"></label>
+          <button onclick="findByPhoto()">Identify &amp; find</button>
+          <div id="find-photo-error" class="error"></div>
+          <div id="find-photo-status" style="font-size:.85rem; color:#666; margin-top:.5rem;"></div>
+          <div id="find-photo-results"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="__KANBAN_PUBLIC_URL__/widget.js"></script>
+  <script>
+    // Empty when PRINT_AGENT_URL isn't configured server-side — printLabel()
+    // and printButton() both no-op/hide in that case rather than erroring.
+    const PRINT_AGENT_URL = '__PRINT_AGENT_URL__';
+
+    // inner_20x10 codes queue instead of printing immediately (see
+    // print_agent.py's row-batching — one physical row is 4 cells, and
+    // printing one code per job wastes the other 3). This bar shows how
+    // many are currently pending and lets you force-print a partial row
+    // (padding unused cells blank) rather than waiting for a 4th code.
+    async function refreshPrintQueue() {
+      if (!PRINT_AGENT_URL) return;
+      const bar = document.getElementById('print-queue-bar');
+      try {
+        const res = await fetch(`${PRINT_AGENT_URL}/print-queue`);
+        if (!res.ok) return;
+        const { queue, cells_until_flush } = await res.json();
+        const total = queue.length + cells_until_flush;
+        document.getElementById('print-queue-count').textContent = `${queue.length}/${total}`;
+        document.getElementById('print-queue-flush-btn').disabled = queue.length === 0;
+        bar.style.display = 'flex';
+      } catch (e) {
+        // Print agent not running — leave the bar hidden rather than
+        // showing a control that can't actually do anything.
+      }
+    }
+
+    async function flushPrintQueue() {
+      const btn = document.getElementById('print-queue-flush-btn');
+      const status = document.getElementById('print-queue-status');
+      btn.disabled = true;
+      status.textContent = 'printing…';
+      try {
+        const res = await fetch(`${PRINT_AGENT_URL}/print-queue/flush`, { method: 'POST' });
+        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || res.statusText);
+        const { printed_codes, blank_cells } = await res.json();
+        status.textContent = `✓ printed ${printed_codes.join(', ')} (${blank_cells} blank)`;
+        setTimeout(() => { status.textContent = ''; }, 3000);
+      } catch (e) {
+        status.textContent = `error: ${e.message}`;
+      } finally {
+        refreshPrintQueue();
+      }
+    }
+
+    refreshPrintQueue();
+
+    function printButton(code) {
+      if (!PRINT_AGENT_URL) return '';
+      return `<button onclick="printLabel('${code}', this)" style="margin-left:.5rem;">🖨 Print</button>`;
+    }
+
+    async function printLabel(code, btn) {
+      const original = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Printing…';
+      try {
+        const url = `${PRINT_AGENT_URL}/print/${encodeURIComponent(code)}`;
+        const res = await fetch(url, { method: 'POST' });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          const err = new Error(body.detail || res.statusText);
+          err.status = res.status;
+          throw err;
+        }
+        // inner_20x10 codes queue instead of printing immediately — see
+        // print_agent.py's row-batching. body.queued means it's sitting
+        // in the 4-cell row queue, not actually printed yet.
+        btn.textContent = body.queued ? `Queued (${body.queue_position}/4)` : '✓ Printed';
+        setTimeout(() => { btn.textContent = original; btn.disabled = false; }, 2000);
+      } catch (e) {
+        btn.textContent = original;
+        btn.disabled = false;
+        // 503 = that size's printer is off/asleep (agent checks before
+        // writing); anything else = agent itself unreachable or failed.
+        alert(e.status === 503
+          ? `Print failed: ${e.message}`
+          : `Print failed: ${e.message}\n\nIs the print agent running on the Pi? (sudo systemctl status wheresdat-print)`);
+      } finally {
+        refreshPrintQueue();
+      }
+    }
+
+    // target -> which .panel-section to show. Anything not listed here
+    // (e.g. LOG ORDER's "#log-order") falls through to the explanation
+    // panel with a "Not built yet" body.
+    const PANEL_MAP = {
+      '#register-type': 'panel-register-type',
+      '#register-case': 'panel-register-case',
+      '#stage-containers': 'panel-stage-containers',
+      '#move-container': 'panel-move-container',
+      '#set-locator': 'panel-set-locator',
+      '#attach-photo': 'panel-attach-photo',
+      '#find-container': 'panel-find',
+      '#find-by-photo': 'panel-find-photo',
+    };
+
+    let boardHandle = null;
+
+    function showPanel(panelId) {
+      document.getElementById('kbm-work').hidden = true;
+      document.getElementById('action-panel').hidden = false;
+      document.querySelectorAll('.panel-section').forEach((p) => p.dataset.active = 'false');
+      document.getElementById(panelId).dataset.active = 'true';
+    }
+
+    function closeActionPanel() {
+      document.getElementById('action-panel').hidden = true;
+      document.getElementById('kbm-work').hidden = false;
+      if (boardHandle) boardHandle.refresh();
+    }
+
+    function onNavigate(target, card) {
+      if (target && /^https?:\/\//.test(target)) {
+        window.location.href = target;
+        return;
+      }
+
+      const mappedPanel = target ? PANEL_MAP[target] : null;
+      if (mappedPanel) {
+        showPanel(mappedPanel);
+        return;
+      }
+
+      document.getElementById('panel-explain-title').textContent = card.title;
+      document.getElementById('panel-explain-body').textContent = card.hasChildren
+        ? 'Choose an option from the menu on the left.'
+        : 'Not built yet.';
+      showPanel('panel-explain');
+    }
+
+    KanBanMan.mount({
+      menuEl: document.getElementById('kbm-menu'),
+      workEl: document.getElementById('kbm-work'),
+      apiBase: '__KANBAN_PUBLIC_URL__',
+      board: 'wheresdat',
+      onNavigate: onNavigate,
+    }).then((handle) => { boardHandle = handle; });
+  </script>
+
+  <script>
+    // Push-to-talk voice input for the name field — same pattern as a
+    // proven working reference (insure-me's useSpeechRecognition), ported
+    // to vanilla JS. NOT continuous/wake-word — that needs native
+    // background execution a browser tab can't do (see SPEC.md's
+    // foreground-only web-app discussion). This only listens while the
+    // mic button is toggled on, same as any other push-to-talk control.
+    const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
+    let recognition = null;
+    let voiceListening = false;
+
+    if (SpeechRecognitionAPI) {
+      recognition = new SpeechRecognitionAPI();
+      recognition.continuous = false;
+      recognition.interimResults = true;
+      recognition.lang = 'en-US';
+
+      recognition.onresult = (event) => {
+        let finalText = '';
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          if (event.results[i].isFinal) finalText += event.results[i][0].transcript;
+        }
+        if (finalText) {
+          const nameEl = document.getElementById('new-name');
+          nameEl.value = (nameEl.value ? nameEl.value + ' ' : '') + finalText.trim();
+        }
+      };
+      recognition.onerror = (event) => {
+        voiceListening = false;
+        document.getElementById('voice-status').textContent =
+          event.error === 'no-speech' ? '' : `Speech error: ${event.error}`;
+      };
+      recognition.onend = () => {
+        voiceListening = false;
+        document.getElementById('voice-btn').textContent = '🎤';
+      };
+    } else {
+      document.addEventListener('DOMContentLoaded', () => {
+        document.getElementById('voice-btn').disabled = true;
+        document.getElementById('voice-status').textContent = 'Voice input not supported in this browser';
+      });
+    }
+
+    function toggleVoice() {
+      if (!recognition) return;
+      if (voiceListening) {
+        recognition.stop();
+      } else {
+        document.getElementById('voice-status').textContent = '';
+        recognition.start();
+        voiceListening = true;
+        document.getElementById('voice-btn').textContent = '⏹';
+      }
+    }
+
+    async function loadTypes() {
+      const res = await fetch('/container-types');
+      const types = await res.json();
+
+      const tbody = document.querySelector('#types-table tbody');
+      tbody.innerHTML = types.map(t => `<tr><td>${t.prefix}</td><td>${t.name}</td><td>${t.default_child_count ?? '—'}</td><td>${t.numbering_scope}</td></tr>`).join('');
+
+      const options = types.map(t => `<option value="${t.prefix}">${t.prefix} — ${t.name}</option>`).join('');
+      document.getElementById('stage-type').innerHTML = options;
+      document.getElementById('case-type').innerHTML = options;
+    }
+
+    async function registerType() {
+      const prefix = document.getElementById('new-prefix').value.trim();
+      const name = document.getElementById('new-name').value.trim();
+      const rawCount = document.getElementById('new-child-count').value.trim();
+      const default_child_count = rawCount ? parseInt(rawCount, 10) : null;
+      const numbering_scope = document.getElementById('new-numbering-scope').value;
+      const errorEl = document.getElementById('type-error');
+      errorEl.textContent = '';
+      try {
+        const res = await fetch('/register-type', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prefix, name, default_child_count, numbering_scope }),
+        });
+        if (!res.ok) {
+          const body = await res.json();
+          throw new Error(body.detail || res.statusText);
+        }
+        document.getElementById('new-prefix').value = '';
+        document.getElementById('new-name').value = '';
+        document.getElementById('new-child-count').value = '';
+        document.getElementById('new-numbering-scope').value = 'global';
+        await loadTypes();
+      } catch (e) {
+        errorEl.textContent = e.message;
+      }
+    }
+
+    async function setLocator() {
+      const code = document.getElementById('locator-code').value.trim();
+      const locator = document.getElementById('locator-text').value.trim() || null;
+      const errorEl = document.getElementById('locator-error');
+      const resultEl = document.getElementById('locator-result');
+      errorEl.textContent = '';
+      resultEl.textContent = '';
+      try {
+        const res = await fetch(`/containers/${encodeURIComponent(code)}/locator`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ locator }),
+        });
+        if (!res.ok) {
+          const body = await res.json();
+          throw new Error(body.detail || res.statusText);
+        }
+        const c = await res.json();
+        resultEl.textContent = `${c.code}: ${c.locator ?? '(cleared)'}`;
+      } catch (e) {
+        errorEl.textContent = e.message;
+      }
+    }
+
+    function loadPhotoPreview() {
+      const code = document.getElementById('photo-code').value.trim();
+      const img = document.getElementById('photo-preview');
+      if (!code) {
+        img.style.display = 'none';
+        return;
+      }
+      img.src = `/containers/${encodeURIComponent(code)}/photo?t=${Date.now()}`;
+      img.onload = () => { img.style.display = 'block'; };
+      img.onerror = () => { img.style.display = 'none'; };
+    }
+
+    let findDebounce = null;
+    function findContainers() {
+      clearTimeout(findDebounce);
+      findDebounce = setTimeout(doFindContainers, 250);
+    }
+
+    async function doFindContainers() {
+      const q = document.getElementById('find-query').value.trim();
+      const errorEl = document.getElementById('find-error');
+      const resultsEl = document.getElementById('find-results');
+      errorEl.textContent = '';
+      if (!q) {
+        resultsEl.innerHTML = '';
+        return;
+      }
+      try {
+        const res = await fetch(`/containers/search?q=${encodeURIComponent(q)}`);
+        if (!res.ok) {
+          const body = await res.json();
+          throw new Error(body.detail || res.statusText);
+        }
+        const containers = await res.json();
+        if (containers.length === 0) {
+          resultsEl.innerHTML = '<p style="color:#666;">No matches.</p>';
+          return;
+        }
+        resultsEl.innerHTML = containers.map(c => `
+          <div style="border:1px solid #e0e0e0; padding:.6rem .8rem; margin-top:.5rem; display:flex; gap:.8rem; align-items:flex-start;">
+            ${c.has_photo ? `<img src="/containers/${encodeURIComponent(c.code)}/photo" style="width:60px; height:60px; object-fit:cover; border:1px solid #ccc; flex-shrink:0;">` : ''}
+            <div>
+              <strong>${c.code}</strong> <span style="color:#666;">(${c.domain})</span> ${printButton(c.code)}
+              <div style="font-size:.9rem; margin-top:.2rem;">${c.display_name ? c.display_name.replace(/</g, '&lt;') : '<em>no description</em>'}</div>
+            </div>
+          </div>
+        `).join('');
+      } catch (e) {
+        errorEl.textContent = e.message;
+      }
+    }
+
+    async function uploadPhoto() {
+      const code = document.getElementById('photo-code').value.trim();
+      const fileInput = document.getElementById('photo-file');
+      const errorEl = document.getElementById('photo-error');
+      const resultEl = document.getElementById('photo-result');
+      errorEl.textContent = '';
+      resultEl.textContent = '';
+      if (!code || !fileInput.files[0]) {
+        errorEl.textContent = 'container code and a photo are both required';
+        return;
+      }
+      try {
+        const formData = new FormData();
+        formData.append('file', fileInput.files[0]);
+        const res = await fetch(`/containers/${encodeURIComponent(code)}/photo`, {
+          method: 'POST',
+          body: formData,
+        });
+        if (!res.ok) {
+          const body = await res.json();
+          throw new Error(body.detail || res.statusText);
+        }
+        resultEl.textContent = `photo attached to ${code}`;
+        loadPhotoPreview();
+      } catch (e) {
+        errorEl.textContent = e.message;
+      }
+    }
+
+    async function findByPhoto() {
+      const fileInput = document.getElementById('find-photo-file');
+      const errorEl = document.getElementById('find-photo-error');
+      const statusEl = document.getElementById('find-photo-status');
+      const resultsEl = document.getElementById('find-photo-results');
+      errorEl.textContent = '';
+      resultsEl.innerHTML = '';
+      if (!fileInput.files[0]) {
+        errorEl.textContent = 'choose a photo first';
+        return;
+      }
+      statusEl.textContent = 'Identifying… (first call can take 15-20s while the local model loads)';
+      try {
+        const formData = new FormData();
+        formData.append('file', fileInput.files[0]);
+        const res = await fetch('/containers/find-by-photo', { method: 'POST', body: formData });
+        if (!res.ok) {
+          const body = await res.json();
+          throw new Error(body.detail || res.statusText);
+        }
+        const data = await res.json();
+        statusEl.textContent = `Identified as "${data.identification.name}" — method: ${data.method}${data.note ? ' (' + data.note + ')' : ''}`;
+
+        if (!data.candidates || data.candidates.length === 0) {
+          resultsEl.innerHTML = '<p style="color:#666;">No matching container found.</p>';
+          return;
+        }
+
+        resultsEl.innerHTML = data.candidates.map(c => {
+          const isResolved = data.resolved && c.code === data.resolved.code;
+          const sim = c.similarity !== undefined ? ` — similarity ${c.similarity}` : '';
+          return `
+            <div style="border:${isResolved ? '2px solid #0f62fe' : '1px solid #e0e0e0'}; padding:.6rem .8rem; margin-top:.5rem; display:flex; gap:.8rem; align-items:flex-start;">
+              ${c.has_photo ? `<img src="/containers/${encodeURIComponent(c.code)}/photo" style="width:60px; height:60px; object-fit:cover; border:1px solid #ccc; flex-shrink:0;">` : ''}
+              <div>
+                <strong>${c.code}</strong> <span style="color:#666;">(${c.domain})</span>${sim} ${isResolved ? '<strong style="color:#0f62fe;">← best match</strong>' : ''}
+                <div style="font-size:.9rem; margin-top:.2rem;">${c.display_name ? c.display_name.replace(/</g, '&lt;') : '<em>no description</em>'}</div>
+              </div>
+            </div>
+          `;
+        }).join('');
+      } catch (e) {
+        errorEl.textContent = e.message;
+        statusEl.textContent = '';
+      }
+    }
+
+    // Generic debounced search-and-pick, backing any field where a typo'd
+    // or nonexistent code should never silently go through — reused for
+    // both "container to move" and "new parent". Each result shows a
+    // real thumbnail (has_photo, not a guess) so you're confirming by
+    // sight, not just trusting the code string — the exact gap flagged
+    // after ITM-002 turned out to have no parent_code set at all despite
+    // the raw text fields "accepting" whatever was typed.
+    //
+    // Result code/label travel via data-* attributes read from `this`,
+    // not as inline onclick("...") string arguments — ai_description
+    // (vision-identify's raw output, real product text) can contain
+    // quotes/apostrophes, which would break out of an inline handler's
+    // string literal (or worse, inject) if interpolated directly.
+    function escAttr(s) {
+      return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    const pickDebounce = {};
+    function searchPick(inputId, resultsId, onPick) {
+      document.getElementById(resultsId).innerHTML = '';
+      clearTimeout(pickDebounce[inputId]);
+      pickDebounce[inputId] = setTimeout(() => doSearchPick(inputId, resultsId, onPick), 250);
+    }
+
+    async function doSearchPick(inputId, resultsId, onPick) {
+      const q = document.getElementById(inputId).value.trim();
+      const resultsEl = document.getElementById(resultsId);
+      if (!q) { resultsEl.innerHTML = ''; return; }
+      try {
+        const res = await fetch(`/containers/search?q=${encodeURIComponent(q)}&fuzzy=true`);
+        const containers = await res.json();
+        if (containers.length === 0) {
+          resultsEl.innerHTML = '<p style="color:#666; font-size:.85rem;">No matching containers.</p>';
+          return;
+        }
+        resultsEl.innerHTML = containers.slice(0, 8).map(c => {
+          const thumb = c.has_photo
+            ? `<img class="pick-thumb" src="/containers/${encodeURIComponent(c.code)}/photo">`
+            : `<span class="pick-thumb placeholder">?</span>`;
+          const label = (c.display_name || '(no description)').slice(0, 50);
+          return `
+            <button type="button" class="pick-result" data-code="${escAttr(c.code)}" data-label="${escAttr(label)}" onclick="${onPick.name}(this)">
+              ${thumb}
+              <span><strong>${escAttr(c.code)}</strong><br>${escAttr(label)}</span>
+            </button>
+          `;
+        }).join('');
+      } catch (e) {
+        resultsEl.innerHTML = '';
+      }
+    }
+
+    function renderPickedPreview(previewId, code, label) {
+      const thumb = `<img class="pick-thumb" src="/containers/${encodeURIComponent(code)}/photo" onerror="this.outerHTML='<span class=&quot;pick-thumb placeholder&quot;>?</span>'">`;
+      document.getElementById(previewId).innerHTML = `
+        <div class="picked-preview">${thumb}<span>✓ <strong>${escAttr(code)}</strong> — ${escAttr(label)}</span></div>
+      `;
+    }
+
+    // null unless actually picked from search results — moveContainer()
+    // refuses to submit otherwise, so a typo can never silently become
+    // the code sent to the server.
+    let moveCodePicked = null;
+    let moveParentPicked = null;
+
+    function pickMoveCode(btn) {
+      const { code, label } = btn.dataset;
+      moveCodePicked = code;
+      document.getElementById('move-code').value = code;
+      document.getElementById('move-code-results').innerHTML = '';
+      renderPickedPreview('move-code-preview', code, label);
+    }
+
+    function pickMoveParent(btn) {
+      const { code, label } = btn.dataset;
+      moveParentPicked = code;
+      document.getElementById('move-parent').value = code;
+      document.getElementById('move-parent-results').innerHTML = '';
+      renderPickedPreview('move-parent-preview', code, label);
+    }
+
+    async function moveContainer() {
+      const errorEl = document.getElementById('move-error');
+      const resultEl = document.getElementById('move-result');
+      errorEl.textContent = '';
+      resultEl.textContent = '';
+
+      const parentTyped = document.getElementById('move-parent').value.trim();
+      if (!moveCodePicked) {
+        errorEl.textContent = 'Pick the container to move from the search results.';
+        return;
+      }
+      if (parentTyped && parentTyped !== moveParentPicked) {
+        errorEl.textContent = 'Pick the new parent from the search results, or clear the field to remove it from any parent.';
+        return;
+      }
+      const code = moveCodePicked;
+      const parent_code = parentTyped ? moveParentPicked : null;
+      try {
+        const res = await fetch(`/containers/${encodeURIComponent(code)}/move`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ parent_code }),
+        });
+        if (!res.ok) {
+          const body = await res.json();
+          throw new Error(body.detail || res.statusText);
+        }
+        const c = await res.json();
+        resultEl.textContent = `${c.code} is now under: ${c.parent_code ?? '(spare-parts pool, no parent)'}`;
+        moveCodePicked = null;
+        moveParentPicked = null;
+        document.getElementById('move-code').value = '';
+        document.getElementById('move-parent').value = '';
+        document.getElementById('move-code-preview').innerHTML = '';
+        document.getElementById('move-parent-preview').innerHTML = '';
+      } catch (e) {
+        errorEl.textContent = e.message;
+      }
+    }
+
+    async function registerWithChildren() {
+      const type_prefix = document.getElementById('case-type').value;
+      const domain = document.getElementById('case-domain').value.trim() || 'general';
+      const errorEl = document.getElementById('case-error');
+      const resultEl = document.getElementById('case-result');
+      errorEl.textContent = '';
+      resultEl.textContent = '';
+      try {
+        const res = await fetch('/register-with-children', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type_prefix, domain }),
+        });
+        if (!res.ok) {
+          const body = await res.json();
+          throw new Error(body.detail || res.statusText);
+        }
+        const { parent, children } = await res.json();
+        const lines = [
+          `${parent.code}  (${parent.domain}) ${printButton(parent.code)}`,
+          ...children.map(c => `&nbsp;&nbsp;${c.code} ${printButton(c.code)}`),
+        ];
+        resultEl.innerHTML = lines.join('<br>');
+      } catch (e) {
+        errorEl.textContent = e.message;
+      }
+    }
+
+    async function stageContainers() {
+      const type_prefix = document.getElementById('stage-type').value;
+      const count = parseInt(document.getElementById('stage-count').value, 10);
+      const parent_code = document.getElementById('stage-parent').value.trim() || null;
+      const domain = document.getElementById('stage-domain').value.trim() || 'general';
+      const errorEl = document.getElementById('stage-error');
+      const resultEl = document.getElementById('stage-result');
+      errorEl.textContent = '';
+      resultEl.textContent = '';
+      try {
+        const res = await fetch('/register-batch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type_prefix, count, parent_code, domain }),
+        });
+        if (!res.ok) {
+          const body = await res.json();
+          throw new Error(body.detail || res.statusText);
+        }
+        const containers = await res.json();
+        resultEl.innerHTML = containers.map(c => `${c.code}  (${c.domain}) ${printButton(c.code)}`).join('<br>');
+      } catch (e) {
+        errorEl.textContent = e.message;
+      }
+    }
+
+    loadTypes();
+  </script>
+</body>
+</html>

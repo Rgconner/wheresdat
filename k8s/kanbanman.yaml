@@ -1,0 +1,82 @@
+# Same wheresdat CNPG database as datastore — kanban_cards/columns/tags just
+# live alongside containers/container_types in it, matching the shared-file
+# arrangement the local docker-compose stack used.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kanbanman
+  namespace: wheresdat
+  labels:
+    app: kanbanman
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kanbanman
+  template:
+    metadata:
+      labels:
+        app: kanbanman
+    spec:
+      imagePullSecrets:
+        - name: gitea-registry
+      containers:
+        - name: kanbanman
+          image: registry.example.com/wheresdat/kanbanman:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8300
+              name: http
+          env:
+            - name: _DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: wheresdat-db-secret
+                  key: username
+            - name: _DB_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: wheresdat-db-secret
+                  key: password
+            - name: KANBAN_DB_URL
+              value: "postgresql+psycopg://$(_DB_USER):$(_DB_PASS)@wheresdat-rw.wheresdat.svc:5432/wheresdat"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8300
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8300
+            initialDelaySeconds: 15
+            periodSeconds: 30
+---
+# LoadBalancer, not ClusterIP — registration's frontend serves widget.css/
+# widget.js/API calls straight from the BROWSER via KANBAN_PUBLIC_URL (see
+# static/index.html's __KANBAN_PUBLIC_URL__ substitution), so kanbanman
+# needs its own externally-reachable address, same as the local
+# docker-compose stack got via its published host port.
+apiVersion: v1
+kind: Service
+metadata:
+  name: kanbanman
+  namespace: wheresdat
+  labels:
+    app: kanbanman
+spec:
+  type: LoadBalancer
+  selector:
+    app: kanbanman
+  ports:
+    - name: http
+      port: 8300
+      targetPort: 8300

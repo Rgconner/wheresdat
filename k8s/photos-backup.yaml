@@ -1,0 +1,56 @@
+# Syncs the wheresdat-photos PVC (datastore's reference photos — not covered
+# by the CNPG backup in db.yaml, which only handles the Postgres db) to the
+# same R2 bucket under a separate prefix, daily. Uses the same
+# wheresdat-s3-credentials secret as the db backup.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: wheresdat-photos-backup
+  namespace: wheresdat
+spec:
+  schedule: "30 2 * * *"
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: s3-sync
+              image: amazon/aws-cli:2.17.62
+              command: ["aws"]
+              args:
+                - --endpoint-url=https://f15e831c6c5d8fd331c8aafc9a51f550.r2.cloudflarestorage.com
+                - s3
+                - sync
+                - /data/photos
+                - s3://wheresdat/photos
+                - --delete
+              env:
+                - name: AWS_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: wheresdat-s3-credentials
+                      key: ACCESS_KEY_ID
+                - name: AWS_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: wheresdat-s3-credentials
+                      key: ACCESS_SECRET_KEY
+                - name: AWS_DEFAULT_REGION
+                  valueFrom:
+                    secretKeyRef:
+                      name: wheresdat-s3-credentials
+                      key: REGION
+              volumeMounts:
+                # Mounted at /data (not /data/photos) to match datastore's own
+                # mount point — the PVC root holds a photos/ subdirectory
+                # (see datastore/main.py's _PHOTOS_DIR), so /data/photos here
+                # resolves to the same path datastore writes to.
+                - name: photos
+                  mountPath: /data
+                  readOnly: true
+          volumes:
+            - name: photos
+              persistentVolumeClaim:
+                claimName: wheresdat-photos

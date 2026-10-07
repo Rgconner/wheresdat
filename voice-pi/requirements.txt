@@ -1,0 +1,29 @@
+# Pi4/Pi5, Raspberry Pi OS (64-bit). Install with the TWO commands below,
+# not a single `pip install -r requirements.txt` — confirmed on real
+# hardware (Pi4, Debian 13 trixie, Python 3.13, aarch64) that a plain
+# install fails: openwakeword's package metadata hard-requires
+# tflite-runtime, which has no published wheel for Python 3.13 on
+# aarch64. openwakeword also works fine on its OTHER backend, onnx
+# (which does have a wheel here) — wake_word.py already requests
+# inference_framework="onnx" explicitly, so tflite-runtime isn't
+# actually needed at runtime, only pip's dependency resolver insists on
+# it. Also needs the system PortAudio library first (sounddevice wraps
+# it, doesn't bundle it): `apt-get install portaudio19-dev libasound2-dev`
+#
+#   python3 -m venv .venv && source .venv/bin/activate
+#   pip install --no-deps openwakeword>=0.6.0
+#   pip install -r requirements.txt
+#
+# openwakeword deliberately NOT listed below — it's already installed by
+# the --no-deps command above; listing it here too would make this file's
+# own install re-trigger the same tflite-runtime resolution failure.
+faster-whisper>=1.0.0
+piper-tts>=1.2.0
+sounddevice>=0.4.6
+numpy>=1.26
+requests>=2.31
+onnxruntime
+tqdm
+scipy
+scikit-learn
+rapidfuzz>=3.10

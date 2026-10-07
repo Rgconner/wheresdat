@@ -1,0 +1,78 @@
+# One-off retry for just datastore — the other 4 images from the last
+# wheresdat-build run already pushed successfully; datastore alone hit a
+# 429 from the registry (Gitea rate-limiting 5 simultaneous pushes).
+# Rebuilding all 5 again risks the same collision for no reason.
+#
+# Run:
+#   kubectl -n wheresdat delete job wheresdat-build-datastore --ignore-not-found
+#   kubectl apply -f k8s/kaniko-build-datastore-only.yaml
+#   kubectl -n wheresdat logs -f job/wheresdat-build-datastore
+#   kubectl -n wheresdat rollout restart deployment/datastore deployment/label-maker deployment/kanbanman deployment/registration deployment/vision-identify
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: wheresdat-build-datastore
+  namespace: wheresdat
+spec:
+  ttlSecondsAfterFinished: 3600
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      initContainers:
+        - name: git-clone-wheresdat
+          image: alpine/git:latest
+          command: ["sh", "-c"]
+          args:
+            - >-
+              git clone --depth=1
+              https://github.com/Rgconner/wheresdat.git /workspace/wheresdat
+              && echo 'Clone OK' && ls /workspace/wheresdat
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+          env:
+            - name: GIT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: gitea-secrets
+                  key: admin-user
+            - name: GIT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: gitea-secrets
+                  key: admin-password
+      containers:
+        - name: kaniko-datastore
+          image: gcr.io/kaniko-project/executor:latest
+          args:
+            - --context=dir:///workspace/wheresdat/services/datastore
+            - --dockerfile=/workspace/wheresdat/services/datastore/Dockerfile
+            - --destination=registry.example.com/wheresdat/datastore:latest
+            - --cache=true
+            - --cache-repo=registry.example.com/wheresdat/cache-datastore
+            - --cache-run-layers=true
+            - --cache-copy-layers=false
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+            - name: docker-config
+              mountPath: /kaniko/.docker
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: 2000m
+              memory: 3Gi
+      volumes:
+        - name: workspace
+          emptyDir: {}
+        - name: docker-config
+          projected:
+            sources:
+              - secret:
+                  name: gitea-registry
+                  items:
+                    - key: .dockerconfigjson
+                      path: config.json

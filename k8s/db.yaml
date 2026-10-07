@@ -1,0 +1,89 @@
+# WheresDat — CNPG Postgres cluster
+# Namespace: wheresdat
+# Matches the pattern used by other apps already on the cluster.
+#
+# Bootstrap (run once, before applying this file):
+#   kubectl -n wheresdat create secret generic wheresdat-db-secret \
+#     --type=kubernetes.io/basic-auth \
+#     --from-literal=username=app \
+#     --from-literal=password=<generate>
+#
+# After the cluster is healthy, CNPG auto-creates:
+#   wheresdat-app       — connection secret for the app (username/password/host/port/dbname/uri/pgpass)
+#   wheresdat-superuser — superuser connection secret
+#
+# Services other manifests connect to: wheresdat-rw.wheresdat.svc:5432 (read-write)
+#
+# Offsite backup — Cloudflare R2, bucket "wheresdat" (10GB total, shared with
+# the photos backup in photos-backup.yaml — 7d retention keeps this side
+# small). Credentials bootstrap (run once, before applying this file):
+#   kubectl -n wheresdat create secret generic wheresdat-s3-credentials \
+#     --from-literal=ACCESS_KEY_ID=<r2-access-key-id> \
+#     --from-literal=ACCESS_SECRET_KEY=<r2-secret-access-key> \
+#     --from-literal=REGION=auto
+# R2 requires region "auto" for SigV4 signing even though it's ignored for
+# routing (routing comes from endpointURL instead). Use the ACCOUNT-DEFAULT
+# endpoint (no jurisdiction prefix) — this bucket was created in the default
+# jurisdiction (region ENAM), NOT the "us" jurisdiction-specific one the R2
+# dashboard's "S3 clients" credentials page suggests by default; hitting the
+# wrong jurisdiction endpoint 404s with NoSuchBucket even with valid,
+# correctly-scoped credentials. Confirmed against the live bucket with a
+# throwaway debug pod before wiring this in for real.
+# WAL archiving starts
+# continuously the moment this Cluster reconciles with .spec.backup set; the
+# ScheduledBackup CR (backup-schedule.yaml) drives periodic full base
+# backups on top of that.
+
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: wheresdat
+  namespace: wheresdat
+spec:
+  instances: 1
+  imageName: ghcr.io/cloudnative-pg/postgresql:18.4-system-trixie
+
+  bootstrap:
+    initdb:
+      database: wheresdat
+      owner: app
+      encoding: UTF8
+      localeCType: C
+      localeCollate: C
+      secret:
+        name: wheresdat-db-secret
+
+  storage:
+    size: 5Gi
+    # Uses cluster default storageClass (ceph-cephfs)
+
+  backup:
+    retentionPolicy: "7d"
+    barmanObjectStore:
+      destinationPath: "s3://wheresdat/postgres"
+      endpointURL: "https://f15e831c6c5d8fd331c8aafc9a51f550.r2.cloudflarestorage.com"
+      s3Credentials:
+        accessKeyId:
+          name: wheresdat-s3-credentials
+          key: ACCESS_KEY_ID
+        secretAccessKey:
+          name: wheresdat-s3-credentials
+          key: ACCESS_SECRET_KEY
+        region:
+          name: wheresdat-s3-credentials
+          key: REGION
+      wal:
+        compression: gzip
+      data:
+        compression: gzip
+
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "250m"
+    limits:
+      memory: "1Gi"
+      cpu: "1000m"
+
+  enableSuperuserAccess: false

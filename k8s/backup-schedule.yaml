@@ -1,0 +1,15 @@
+# Daily full base backup on top of the continuous WAL archiving that starts
+# automatically once db.yaml's spec.backup is set. Schedule format has a
+# leading seconds field (robfig/cron), not standard crontab — this runs at
+# 02:00:00 daily.
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: wheresdat-daily
+  namespace: wheresdat
+spec:
+  schedule: "0 0 2 * * *"
+  backupOwnerReference: self
+  method: barmanObjectStore
+  cluster:
+    name: wheresdat

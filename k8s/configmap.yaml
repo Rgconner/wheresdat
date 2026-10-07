@@ -1,0 +1,39 @@
+# Non-secret env shared across the wheresdat services.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: wheresdat-config
+  namespace: wheresdat
+data:
+  DATASTORE_URL: "http://datastore:8101"
+  LABEL_MAKER_URL: "http://label-maker:8103"
+  KANBAN_URL: "http://kanbanman:8300"
+  # kanbanman's own LoadBalancer IP (see k8s/kanbanman.yaml) — this is what
+  # the BROWSER loads widget.css/widget.js/API calls from directly
+  # (registration/static/index.html's __KANBAN_PUBLIC_URL__ substitution),
+  # as opposed to KANBAN_URL above which is container-to-container only and
+  # unreachable from outside the cluster. Update if kanbanman's LB IP ever
+  # changes (MetalLB doesn't guarantee a stable IP across service recreation).
+  KANBAN_PUBLIC_URL: "http://192.0.2.13:8300"
+  # jepa-embed runs on the separate Talos/ROCm cluster (namespace jepa-embed,
+  # LoadBalancer via that cluster's own MetalLB pool). Confirmed reachable
+  # directly from this cluster's pods — no route/firewall change needed,
+  # despite earlier notes to the contrary.
+  JEPA_EMBED_URL: "http://192.0.2.12:8080"
+  # vision-identify is now deployed in-cluster (k8s/vision-identify.yaml),
+  # pointed at the llama.cpp server running on Russ's own workstation — no
+  # cloud API key needed. Internal-only ClusterIP; registration calls it
+  # server-side, the browser never talks to it directly.
+  VISION_IDENTIFY_URL: "http://vision-identify:8201"
+  # pi-print-agent/print_agent.py, running on the same always-on Pi as
+  # voice-pi (the M110S is USB-attached there, /dev/usb/lp0 — see
+  # pi-print-agent/README.md). Moved off Russ's Windows workstation
+  # (scripts/print_agent.py, same HTTP contract, still there as a
+  # fallback) specifically so the workstation can sleep when unused —
+  # printing no longer depends on it being powered on.
+  # Browser-facing, same __PRINT_AGENT_URL__ substitution pattern as
+  # KANBAN_PUBLIC_URL. Empty string hides the Print buttons entirely, so
+  # this is safe to leave stale if the agent isn't running — worst case the
+  # button shows and the fetch fails with a clear "is the agent running?"
+  # alert, not a broken page.
+  PRINT_AGENT_URL: "http://192.0.2.14:8104"

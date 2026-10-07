@@ -1,0 +1,18 @@
+[Unit]
+Description=WheresDat label print agent (Pi; M128 40x30 + M110S 20x10)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=rgcon
+WorkingDirectory=/home/rgcon/wheresdat-print
+ExecStart=/home/rgcon/wheresdat-print/.venv/bin/python3 /home/rgcon/wheresdat-print/print_agent.py
+Restart=on-failure
+RestartSec=5
+# rgcon needs `lp` group membership to write /dev/usb/lp0 without being
+# root (see install-service.sh) — a crashed/restarted service shouldn't
+# need re-adding to that group, it's a one-time account change.
+
+[Install]
+WantedBy=multi-user.target

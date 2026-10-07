@@ -1,0 +1,81 @@
+# The public-facing service — gets a MetalLB LoadBalancer IP, same as every
+# other app's user-facing service on this cluster (insure-me/web-ui,
+# ops-flow/ops-flow, picker-vision/web-ui, etc).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: registration
+  namespace: wheresdat
+  labels:
+    app: registration
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: registration
+  template:
+    metadata:
+      labels:
+        app: registration
+    spec:
+      imagePullSecrets:
+        - name: gitea-registry
+      containers:
+        - name: registration
+          image: registry.example.com/wheresdat/registration:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8102
+              name: http
+          envFrom:
+            - configMapRef:
+                name: wheresdat-config
+          env:
+            # Short (<=6 word) display names from long label text — same
+            # ClinePass gateway/model/secret as vision-identify, but the
+            # prompt is WheresDat-specific so it lives here, not in the
+            # shared code-library service.
+            - name: NAME_LLM_BASE_URL
+              value: "https://api.cline.bot/api/v1"
+            - name: NAME_LLM_MODEL
+              value: "cline-pass/minimax-m3"
+            - name: NAME_LLM_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: wheresdat-vision-clinepass
+                  key: api-key
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8102
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8102
+            initialDelaySeconds: 15
+            periodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: registration
+  namespace: wheresdat
+  labels:
+    app: registration
+spec:
+  type: LoadBalancer
+  selector:
+    app: registration
+  ports:
+    - name: http
+      port: 8102
+      targetPort: 8102

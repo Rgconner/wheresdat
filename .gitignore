@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+*.db
+.venv/
+hardware/generated/
+*.log
+scripts/print_agent_state.json
+scripts/print_agent_queue.json
+pi-print-agent/print_agent_state.json
+pi-print-agent/print_agent_queue.json

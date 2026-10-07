@@ -1,0 +1,9 @@
+# WheresDat label printers: stable names by model, independent of USB port
+# and of lp0/lp1 enumeration order. Both report placeholder serials, so
+# vendor:product is the only reliable distinction. See print_agent.py.
+
+# Phomemo M110S (Jieli) - 20x10 roll
+SUBSYSTEM=="usbmisc", KERNEL=="lp*", ATTRS{idVendor}=="0483", ATTRS{idProduct}=="5740", SYMLINK+="label-20x10"
+
+# Phomemo M128 (YiDa YD583) - 40x30 roll
+SUBSYSTEM=="usbmisc", KERNEL=="lp*", ATTRS{idVendor}=="09c5", ATTRS{idProduct}=="583e", SYMLINK+="label-40x30"
